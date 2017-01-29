@@ -92,13 +92,14 @@ fn end()         -> u16 { Instruction::new(END, 0).w }
 fn con(n: i16)   -> u16 { n as u16 }
 
 
-fn exec(old: Regs, mem: &[u16]) -> Regs {
+fn exec(old: Regs, mem: &mut[u16]) -> Regs {
 	let instr = Instruction::load(old.pc, mem);
 	match instr.op() {
 		// TODO: implement correct under/overflow behavior
 		ADD    => Regs { acc: old.acc + instr.arg(mem), pc: old.pc + 1},
 		SUB    => Regs { acc: old.acc - instr.arg(mem), pc: old.pc + 1},
-		STORE  => Regs { acc: old.acc, pc: old.pc + 1}, // TODO: side effect
+		STORE  => { mem[instr.n() as usize] = old.acc as u16;
+		          Regs { acc: old.acc, pc: old.pc + 1} },
 		CLEAR  => Regs { acc: 0, pc: old.pc + 1},
 		OR     => Regs { acc: old.acc | instr.arg(mem), pc: old.pc + 1},
 		AND    => Regs { acc: old.acc & instr.arg(mem), pc: old.pc + 1},
@@ -115,7 +116,7 @@ fn exec(old: Regs, mem: &[u16]) -> Regs {
 
 //fn print()
 
-fn run(pc: u16, mem: &[u16]) -> Regs {
+fn run(pc: u16, mem: &mut[u16]) -> Regs {
 	let mut regs = Regs {acc: 0, pc: pc};
 	while Instruction::load(regs.pc, mem).op() != END {
 		print!("{:04}: {}", regs.pc, Instruction::load(regs.pc, mem));
@@ -126,13 +127,27 @@ fn run(pc: u16, mem: &[u16]) -> Regs {
 	regs
 }
 
+fn print_mem(mem: &[u16]) {
+	let mut ii = 0;
+	for w in mem {
+		println!("{0:04}: {1:016b} ({2:>6})", ii, w, *w as i16);
+		ii = ii + 1;
+	}
+}
+
 fn main() {
-	let mem: [u16; 6] = [
-		add(4),
-		add(5),
+	let mut mem: [u16; 7] = [
 		clear(),
+		add(5),		// load 20
+		add(6),		// add -30
+		store(5),	// store result
 		end(),
 		con(20),
 		con(-30)];
-	run(0, &mem);
+
+	print_mem(&mem);
+	println!();
+	run(0, &mut mem);
+	println!();
+	print_mem(&mem);
 }

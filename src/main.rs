@@ -17,6 +17,7 @@
 #![allow(dead_code)]
 
 use std::fmt;
+use std::ops;
 
 // TODO: remove redundancy in instruction definition with the use of macros
 //       or compiler plugin in the spirit of:
@@ -54,10 +55,16 @@ const MAX_MEM: usize = 2048;
 
 fn mask(bits: u32) -> u16 { (1 << bits) - 1 }
 
-struct Regs { acc: i16, pc: u16 }
+struct Regs { acc: Integer, pc: u16 }
 struct Instruction { w: u16 }
-struct Integer {w: u16}
+#[derive(Copy, Clone)]
+struct Integer { w: u16}
 
+impl Regs {
+	fn new(pc: u16) -> Regs {
+		Regs {acc: Integer::new(0), pc: pc}
+	}
+}
 impl fmt::Display for Regs {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		write!(f, "pc: {:04}; acc: {:>6}", self.pc, self.acc)
@@ -73,12 +80,87 @@ impl Instruction {
 	}
 	fn n(&self) -> u16 { self.w & mask(11) }
 	fn op(&self) -> u16 { self.w >> 11 }
-	fn arg(&self, mem: &[u16]) -> i16 { mem[self.n() as usize] as i16 }
+	fn arg(&self, mem: &[u16]) -> Integer { Integer::load(self.n(), mem) }
 }
 
 impl fmt::Display for Instruction {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		write!(f, "{} {}", op_to_str(self.op()), self.n())
+	}
+}
+
+impl Integer {
+	fn new(ii: i16) -> Integer {
+		let abs_val = (ii.abs() as u16) & ((1<<15) - 1);
+		if ii >= 0 { Integer { w: abs_val } }
+		else { Integer { w: (1<<15) | abs_val } }
+	}
+	fn load(index: u16, mem: &[u16]) -> Integer { Integer { w: mem[index as usize] } }
+	fn is_positive(&self) -> bool { self.w & (1 << 15) == 0}
+	fn abs(&self) -> u16 { self.w & ((1<<15) - 1) }
+	fn sign(&self) -> u16 { self.w & (1<<15) }
+	fn less_than_zero(&self) -> bool { !self.is_positive() && self.abs() != 0 }
+}
+
+impl fmt::Display for Integer {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "{}{}", if self.is_positive() { "" } else { "-" }, self.abs())
+	}
+}
+
+impl ops::Add for Integer {
+	type Output = Integer;
+	fn add(self, other: Integer) -> Integer {
+		if self.is_positive() == other.is_positive() {
+			let result = self.abs() as u32 + other.abs() as u32;
+			if result > ((1<<15) - 1) {
+				panic!("Overflow detected trying to execute {} + {}", self, other);
+			}
+			Integer { w: result as u16 | self.sign() }
+		} else {
+			let pos = if self.is_positive() { self.abs()  } else { other.abs() };
+			let neg = if self.is_positive() { other.abs() } else { self.abs() };
+			if pos >= neg {
+				Integer { w: pos - neg }
+			} else {
+				Integer { w: neg - pos | (1 << 15) }
+			}
+		}
+	}
+}
+
+impl ops::Sub for Integer {
+	type Output = Integer;
+	fn sub(self, other: Integer) -> Integer {
+		self + Integer { w: other.w ^ (1<<15) }
+	}
+}
+
+impl ops::BitOr for Integer {
+	type Output = Integer;
+	fn bitor(self, other: Integer) -> Integer {
+		Integer { w: self.w | other.w }
+	}
+}
+
+impl ops::BitAnd for Integer {
+	type Output = Integer;
+	fn bitand(self, other: Integer) -> Integer {
+		Integer { w: self.w & other.w }
+	}
+}
+
+impl ops::Shr<u16> for Integer {
+	type Output = Integer;
+	fn shr(self, other: u16) -> Integer {
+		Integer { w: (self.abs() >> other) | self.sign() }
+	}
+}
+
+impl ops::Shl<u16> for Integer {
+	type Output = Integer;
+	fn shl(self, other: u16) -> Integer {
+		Integer { w: (self.abs() << other) | self.sign() }
 	}
 }
 
@@ -89,7 +171,7 @@ fn clear()       -> u16 { Instruction::new(CLEAR, 0).w }
 fn or(n: u16)    -> u16 { Instruction::new(OR, n).w }
 fn and(n: u16)   -> u16 { Instruction::new(AND, n).w }
 fn end()         -> u16 { Instruction::new(END, 0).w }
-fn con(n: i16)   -> u16 { n as u16 }
+fn con(n: i16)   -> u16 { Integer::new(n).w }
 
 
 fn exec(old: Regs, mem: &mut[u16]) -> Regs {
@@ -98,26 +180,24 @@ fn exec(old: Regs, mem: &mut[u16]) -> Regs {
 		// TODO: implement correct under/overflow behavior
 		ADD    => Regs { acc: old.acc + instr.arg(mem), pc: old.pc + 1},
 		SUB    => Regs { acc: old.acc - instr.arg(mem), pc: old.pc + 1},
-		STORE  => { mem[instr.n() as usize] = old.acc as u16;
+		STORE  => { mem[instr.n() as usize] = old.acc.w;
 		          Regs { acc: old.acc, pc: old.pc + 1} },
-		CLEAR  => Regs { acc: 0, pc: old.pc + 1},
+		CLEAR  => Regs { acc: Integer::new(0), pc: old.pc + 1},
 		OR     => Regs { acc: old.acc | instr.arg(mem), pc: old.pc + 1},
 		AND    => Regs { acc: old.acc & instr.arg(mem), pc: old.pc + 1},
 		SHIFTR => Regs { acc: old.acc >> instr.n(), pc: old.pc + 1},
 		SHIFTL => Regs { acc: old.acc << instr.n(), pc: old.pc + 1},
 		BGE    => Regs { acc: old.acc,
-		                 pc: if old.acc >= 0 { instr.n() } else { old.pc + 1} },
+		                 pc: if !old.acc.less_than_zero() { instr.n() } else { old.pc + 1} },
 		BLT    => Regs { acc: old.acc,
-		                 pc: if old.acc <  0 { instr.n() } else { old.pc + 1} },
+		                 pc: if old.acc.less_than_zero() { instr.n() } else { old.pc + 1} },
 		END    => Regs { acc: old.acc, pc: old.pc}, // TODO: signal halted
 		_ => panic!("Unknown op code ({:05b})", instr.op()),
 	}
 }
 
-//fn print()
-
 fn run(pc: u16, mem: &mut[u16]) -> Regs {
-	let mut regs = Regs {acc: 0, pc: pc};
+	let mut regs = Regs::new(pc);
 	while Instruction::load(regs.pc, mem).op() != END {
 		print!("{:04}: {}", regs.pc, Instruction::load(regs.pc, mem));
 		let acc_old = regs.acc;
@@ -130,7 +210,9 @@ fn run(pc: u16, mem: &mut[u16]) -> Regs {
 fn print_mem(mem: &[u16]) {
 	let mut ii = 0;
 	for w in mem {
-		println!("{0:04}: {1:016b} ({2:>6})", ii, w, *w as i16);
+		println!("{0:04}: {1:016b} ({2:>6} | {3:<10})", ii, w,
+				Integer { w: *w }.to_string(),
+				Instruction { w: *w }.to_string());
 		ii = ii + 1;
 	}
 }

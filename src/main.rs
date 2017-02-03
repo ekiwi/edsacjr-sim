@@ -13,9 +13,6 @@
 //
 // Copyright 2017 by Kevin Läufer <kevin.laeufer@rwth-aachen.de>
 
-// TODO: remove once code stabilizes
-#![allow(dead_code)]
-
 use std::fmt;
 use std::ops;
 
@@ -36,7 +33,9 @@ impl fmt::Display for Regs {
 	}
 }
 
+
 // Instruction Definitions
+#[allow(unused)]
 struct InstrType { name: &'static str, opcode: u16, exec: fn(u16, Regs, &mut[u16]) -> Regs }
 
 // unfortunately the synthax for generating function pointers on the fly
@@ -58,7 +57,7 @@ exec: { fn exec(n: u16, old: Regs, mem: &mut[u16]) -> Regs {
 	} exec } };
 
 const CLEAR:  InstrType = InstrType { name: "CLEAR",  opcode: 0b00011,
-exec: { fn exec(n: u16, old: Regs, mem: &mut[u16]) -> Regs {
+exec: { fn exec(_: u16, old: Regs, _: &mut[u16]) -> Regs {
 	Regs { acc: Integer::new(0), pc: old.pc + 1}
 	} exec } };
 
@@ -73,27 +72,27 @@ exec: { fn exec(n: u16, old: Regs, mem: &mut[u16]) -> Regs {
 	} exec } };
 
 const SHIFTR: InstrType = InstrType { name: "SHIFTR", opcode: 0b00101,
-exec: { fn exec(n: u16, old: Regs, mem: &mut[u16]) -> Regs {
+exec: { fn exec(n: u16, old: Regs, _: &mut[u16]) -> Regs {
 	Regs { acc: old.acc >> n, pc: old.pc + 1}
 	} exec } };
 
 const SHIFTL: InstrType = InstrType { name: "SHIFTL", opcode: 0b00110,
-exec: { fn exec(n: u16, old: Regs, mem: &mut[u16]) -> Regs {
+exec: { fn exec(n: u16, old: Regs, _: &mut[u16]) -> Regs {
 	Regs { acc: old.acc << n, pc: old.pc + 1}
 	} exec } };
 
 const BGE:    InstrType = InstrType { name: "BGE",    opcode: 0b00111,
-exec: { fn exec(n: u16, old: Regs, mem: &mut[u16]) -> Regs {
+exec: { fn exec(n: u16, old: Regs, _: &mut[u16]) -> Regs {
 	Regs { acc: old.acc, pc: if !old.acc.less_than_zero() { n } else { old.pc + 1} }
 	} exec } };
 
 const BLT:    InstrType = InstrType { name: "BLT",    opcode: 0b01000,
-exec: { fn exec(n: u16, old: Regs, mem: &mut[u16]) -> Regs {
+exec: { fn exec(n: u16, old: Regs, _: &mut[u16]) -> Regs {
 	Regs { acc: old.acc, pc: if old.acc.less_than_zero() { n } else { old.pc + 1} }
 	} exec } };
 
 const END:    InstrType = InstrType { name: "END",    opcode: 0b01010,
-exec: { fn exec(n: u16, old: Regs, mem: &mut[u16]) -> Regs {
+exec: { fn exec(_: u16, old: Regs, _: &mut[u16]) -> Regs {
 	Regs { acc: old.acc, pc: old.pc} // TODO: signal halted
 	} exec } };
 
